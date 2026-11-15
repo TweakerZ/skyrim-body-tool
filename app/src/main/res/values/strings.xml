@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Skyrim Body Tool</string>
+    <string name="app_subtitle">Skyrim LE · static Android port · preset-driven builder</string>
+
+    <!-- Storage -->
+    <string name="storage_checking">Checking storage access...</string>
+    <string name="storage_granted">All-files access granted. Real filesystem paths are available for game data and projects.</string>
+    <string name="storage_missing">All-files access is recommended. Mesh/project data lives outside app storage and often needs real paths.</string>
+    <string name="btn_grant_storage">Grant all-files access</string>
+    <string name="storage_permission_title">Storage access needed</string>
+
+    <!-- Header chips -->
+    <string name="chip_storage_granted">Storage OK</string>
+    <string name="chip_storage_missing">No storage access</string>
+    <string name="chip_sets">%1$d sets</string>
+    <string name="chip_presets">%1$d presets</string>
+    <string name="settings_title">Advanced settings</string>
+    <string name="target_skyrim_le_short">Skyrim LE</string>
+
+    <!-- Target -->
+    <string name="label_target_game">Target</string>
+    <string name="target_skyrim_le">Skyrim Legendary Edition (static Android port)</string>
+
+    <!-- Paths -->
+    <string name="label_game_data">Game / mod data folder</string>
+    <string name="hint_game_data">Skyrim LE port/mod data folder containing Data (meshes, textures). Use the port root or the folder that holds Data.</string>
+    <string name="label_project_path">BodySlide project folder</string>
+    <string name="hint_project_path">BodySlide project folder containing SliderSets, SliderPresets and SliderGroups for Skyrim LE.</string>
+    <string name="label_output_path">Mod output folder</string>
+    <string name="hint_output_path">Where the built mod zip (or loose meshes) is written. Point this at your mod-manager downloads/mods folder.</string>
+    <string name="btn_select">Select</string>
+    <string name="msg_not_selected">Not selected</string>
+
+    <!-- Mod package -->
+    <string name="label_mod_package">Mod package</string>
+    <string name="hint_mod_package">Built meshes are bundled into a mod zip with game-relative paths so a mod loader can install it directly.</string>
+    <string name="hint_mod_name">Mod name (zip file name)</string>
+    <string name="label_package_zip">Package built meshes as a mod zip</string>
+    <string name="mod_zip_created">Mod zip created: %1$s</string>
+    <string name="mod_files_written">Wrote %1$d mesh file(s) to: %2$s</string>
+
+    <!-- Outfit / preset -->
+    <string name="label_group_filter">Group filter</string>
+    <string name="filter_all">All</string>
+    <string name="no_items">No items found</string>
+    <string name="label_outfit">Outfit / body (slider set)</string>
+    <string name="hint_outfit">Pick the slider set to build. Presets are applied at build time.</string>
+    <string name="label_preset">Preset</string>
+    <string name="hint_preset">The selected preset values are applied to every built set. No manual slider editing.</string>
+    <string name="preset_none">(no preset)</string>
+
+    <!-- Preset values (read-only) -->
+    <string name="label_preset_values">Preset values</string>
+    <string name="hint_preset_values">Read-only preview of the values the preset applies to the selected set.</string>
+    <string name="preset_values_empty">Select an outfit and a preset to see the applied values.</string>
+
+    <!-- Conflict resolution -->
+    <string name="label_conflict">Output conflicts</string>
+    <string name="conflict_none">No two selected outfits write the same output file.</string>
+    <string name="conflict_summary_free">%1$d set(s) queued, no output conflicts.</string>
+    <string name="conflict_summary">%1$d output conflict(s) found. %2$d set(s) will be built.</string>
+    <string name="conflict_dialog_title">Resolve output conflicts</string>
+    <string name="conflict_dialog_message">Multiple outfits write the same output file. Choose which outfit wins for each; the others are skipped for that file.</string>
+    <string name="conflict_winner_hint">Build this outfit</string>
+    <string name="btn_continue">Continue build</string>
+
+    <!-- Actions -->
+    <string name="btn_build">Build</string>
+    <string name="btn_batch_build">Batch build</string>
+    <string name="btn_view_logs">View logs</string>
+
+    <!-- Progress -->
+    <string name="progress_idle">Idle.</string>
+    <string name="progress_preparing">Preparing build...</string>
+    <string name="progress_text">Building %1$d / %2$d · %3$s</string>
+    <string name="progress_packaging">Packaging mod zip...</string>
+
+    <!-- Status / logs -->
+    <string name="status_ready">Ready.</string>
+    <string name="status_scanning">Scanning projects and presets...</string>
+    <string name="status_building">Building meshes...</string>
+    <string name="status_done">Build finished.</string>
+    <string name="status_failed">Build failed.</string>
+    <string name="summary_empty">Select project, output, outfit and preset to begin.</string>
+    <string name="hint_ready">Choose an outfit and preset, then Build. Paths live in Advanced settings.</string>
+    <string name="logs_empty">No actions have run yet.</string>
+    <string name="dialog_logs_title">Build log</string>
+    <string name="dialog_close">Close</string>
+
+    <!-- Misc -->
+    <string name="dialog_ok">OK</string>
+    <string name="dialog_cancel">Cancel</string>
+</resources>

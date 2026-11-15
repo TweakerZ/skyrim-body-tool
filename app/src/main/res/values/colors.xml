@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dark Nordic-inspired palette, aligned with loot-android style -->
+    <color name="bs_window_background">#FFF6FBF7</color>
+    <color name="bs_background">#FF05070A</color>
+    <color name="bs_backgroundRaised">#FF0B1015</color>
+
+    <color name="bs_surface">#FF111820</color>
+    <color name="bs_surfaceRaised">#FF18222D</color>
+    <color name="bs_surfacePanel">#FF22303C</color>
+    <color name="bs_buttonSurface">#FF263542</color>
+
+    <color name="bs_borderDim">#FF3A4856</color>
+    <color name="bs_borderHot">#FF8FB6D9</color>
+    <color name="bs_glow">#FFA7D8FF</color>
+
+    <color name="bs_primary">#FFAED2EC</color>
+    <color name="bs_primarySoft">#FF7EAACB</color>
+    <color name="bs_primaryDark">#FF1E3B52</color>
+    <color name="bs_primaryButton">#FF2B5878</color>
+
+    <color name="bs_amber">#FFD1B06A</color>
+    <color name="bs_green">#FF83C995</color>
+    <color name="bs_red">#FFD37B7B</color>
+
+    <color name="bs_text">#FFE8EEF2</color>
+    <color name="bs_textMuted">#FFB4C0C8</color>
+    <color name="bs_textDim">#FF7D8A94</color>
+
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+</resources>

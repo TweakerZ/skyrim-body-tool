@@ -1,0 +1,26 @@
+# Gradle / build output
+build/
+.gradle/
+.kotlin/
+app/build/
+app/.cxx/
+*.iml
+.gradle-cache/
+captures/
+.externalNativeBuild/
+
+# Local machine configuration
+local.properties
+*.hprof
+
+# IDE
+.idea/
+.vscode/
+
+# Signing material
+*.jks
+*.keystore
+
+# Test fixture copy of a Skyrim mod project (210 MB of ShapeData).
+# Not needed to build the app; keep it out of the repo.
+/slides/
