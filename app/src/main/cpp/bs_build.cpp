@@ -531,6 +531,7 @@ void applySlidersToNif(nifly::NifFile& nif,
                        const DiffMap& diffs,
                        const std::map<std::string, std::string>& aliases,
                        const std::map<std::string, float>& values,
+                       bool useBigDefault,
                        std::vector<std::string>& log) {
     for (const ShapeInfo& shapeInfo : set.shapes) {
         nifly::NiShape* shape = nif.FindBlockByName<nifly::NiShape>(shapeInfo.shapeName);
@@ -556,7 +557,10 @@ void applySlidersToNif(nifly::NifFile& nif,
             if (!entries)
                 continue;
 
-            float v = sliderValuePercent(slider, values, slider.defBig) / 100.0f;
+            // Sliders absent from the preset fall back to the set's own default
+            // for this weight (BodySlide's GetPresetValues).
+            const float defPercent = useBigDefault ? slider.defBig : slider.defSmall;
+            float v = sliderValuePercent(slider, values, defPercent) / 100.0f;
 
             if (slider.zap && !slider.uv) {
                 if (v > 0.0f)
@@ -593,7 +597,10 @@ void applySlidersToNif(nifly::NifFile& nif,
         for (const SliderInfo& slider : set.sliders) {
             if (!slider.clamp)
                 continue;
-            float v = sliderValuePercent(slider, values, slider.defBig) / 100.0f;
+            // Sliders absent from the preset fall back to the set's own default
+            // for this weight (BodySlide's GetPresetValues).
+            const float defPercent = useBigDefault ? slider.defBig : slider.defSmall;
+            float v = sliderValuePercent(slider, values, defPercent) / 100.0f;
             if (v <= 0.0f)
                 continue;
             const SliderDataFile* df = findDataFileForTarget(slider, shapeInfo.targetName);
@@ -720,8 +727,8 @@ BuildResult buildOutfit(const BuildRequest& request) {
     if (genWeights) {
         nifly::NifFile nifSmall = nifBig;
 
-        applySlidersToNif(nifBig, set, diffs, aliases, request.bigValues, result.log);
-        applySlidersToNif(nifSmall, set, diffs, aliases, request.smallValues, result.log);
+        applySlidersToNif(nifBig, set, diffs, aliases, request.bigValues, true, result.log);
+        applySlidersToNif(nifSmall, set, diffs, aliases, request.smallValues, false, result.log);
 
         const std::string bigName = outBase + "_1.nif";    // high weight
         const std::string smallName = outBase + "_0.nif";  // low weight
@@ -740,7 +747,7 @@ BuildResult buildOutfit(const BuildRequest& request) {
         result.files.push_back({bigPath, sanitizeGamePath(joinPath(gameDir, bigName))});
         result.files.push_back({smallPath, sanitizeGamePath(joinPath(gameDir, smallName))});
     } else {
-        applySlidersToNif(nifBig, set, diffs, aliases, request.bigValues, result.log);
+        applySlidersToNif(nifBig, set, diffs, aliases, request.bigValues, true, result.log);
 
         const std::string outName = outBase + ".nif";
         const std::string outPath = joinPath(request.outputDir, outName);
@@ -806,6 +813,8 @@ std::string sliderSetToJson(const SliderSetInfo& set) {
         out << ",\"clamp\":" << (s.clamp ? "true" : "false");
         out << ",\"uv\":" << (s.uv ? "true" : "false");
         out << ",\"hidden\":" << (s.hidden ? "true" : "false");
+        out << ",\"defaultBig\":" << s.defBig;
+        out << ",\"defaultSmall\":" << s.defSmall;
         out << ",\"dataCount\":" << s.dataFiles.size();
         out << "}";
     }

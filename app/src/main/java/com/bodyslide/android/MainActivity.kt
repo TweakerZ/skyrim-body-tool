@@ -334,13 +334,16 @@ class MainActivity : AppCompatActivity() {
         }
 
         lifecycleScope.launch {
-            val defs = withContext(Dispatchers.IO) { BodySlideParser.parseSlidersForSet(outfit.file, outfit.name) }
+            val defs = withContext(Dispatchers.IO) { parseDefs(outfit) }
             currentDefs = defs
             renderPresetValues()
             refreshSummary()
 
             if (modName.isBlank()) modName = outfit.name
             log("Loaded set '${outfit.name}' (${defs.size} sliders) from ${outfit.file.name}")
+            if (defs.isEmpty()) {
+                log("WARNING: no slider definitions could be read from ${outfit.file.name}; builds will use only set defaults.")
+            }
 
             val nativeInfo = withContext(Dispatchers.IO) {
                 NativeBridge.parseSliderSet(outfit.file.absolutePath, outfit.name)
@@ -768,6 +771,44 @@ class MainActivity : AppCompatActivity() {
         return report.toString()
     }
 
+    /**
+     * Slider definitions for a set.
+     *
+     * The native parser is authoritative: it is the same parser the build uses,
+     * so the names sent back in the value arrays always match the sliders the
+     * build looks up. The Kotlin XML parser is only a fallback for the case
+     * where the native core could not read the file.
+     */
+    private fun parseDefs(entry: SliderSetEntry): List<SliderDef> {
+        val native = nativeSliderDefs(entry)
+        if (native.isNotEmpty()) return native
+        return BodySlideParser.parseSlidersForSet(entry.file, entry.name)
+    }
+
+    private fun nativeSliderDefs(entry: SliderSetEntry): List<SliderDef> {
+        val json = NativeBridge.parseSliderSet(entry.file.absolutePath, entry.name)
+        return runCatching {
+            val root = JSONObject(json)
+            if (!root.optBoolean("ok")) return emptyList()
+            val arr = root.optJSONArray("sliders") ?: return emptyList()
+            (0 until arr.length()).mapNotNull { i ->
+                val o = arr.optJSONObject(i) ?: return@mapNotNull null
+                val name = o.optString("name")
+                if (name.isBlank()) return@mapNotNull null
+                SliderDef(
+                    name = name,
+                    invert = o.optBoolean("invert"),
+                    zap = o.optBoolean("zap"),
+                    hidden = o.optBoolean("hidden"),
+                    clamp = o.optBoolean("clamp"),
+                    uv = o.optBoolean("uv"),
+                    defaultBig = o.optDouble("defaultBig", 0.0).toInt(),
+                    defaultSmall = o.optDouble("defaultSmall", 0.0).toInt()
+                )
+            }
+        }.getOrDefault(emptyList())
+    }
+
     /** Build values for a set: its definitions plus the given preset, no manual edits. */
     private fun buildValuesFor(
         entry: SliderSetEntry,
@@ -777,7 +818,7 @@ class MainActivity : AppCompatActivity() {
         val defs = if (selected != null && selected.file == entry.file && selected.name == entry.name && currentDefs.isNotEmpty()) {
             currentDefs
         } else {
-            BodySlideParser.parseSlidersForSet(entry.file, entry.name)
+            parseDefs(entry)
         }
         return composeValues(defs, preset)
     }

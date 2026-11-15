@@ -24,10 +24,22 @@ data class PresetValues(
 
 object BodySlideParser {
 
+    /**
+     * Reads an XML file as text with any leading UTF-8 BOM removed.
+     *
+     * XmlPullParser works on characters, not bytes, so a BOM that Android's
+     * readText() decodes to U+FEFF is not treated as an encoding signature and
+     * makes the parser reject the document ("content not allowed in prolog").
+     * 62 of the 65 shipped Skyrim LE slider-set files start with a BOM, so this
+     * silently produced zero sliders for every outfit.
+     */
+    private fun readXml(file: File): String = file.readText().removePrefix("\uFEFF")
+
     fun parseSlidersForSet(file: File, setName: String): List<SliderDef> {
         return runCatching {
-            val text = file.readText()
-            parseSlidersFromXml(text, setName)
+            parseSlidersFromXml(readXml(file), setName)
+        }.onFailure {
+            android.util.Log.w("BodySlideParser", "Failed to parse sliders from ${file.name}: ${it.message}")
         }.getOrDefault(emptyList())
     }
 
@@ -90,8 +102,9 @@ object BodySlideParser {
 
     fun parsePreset(file: File, presetName: String): PresetValues? {
         return runCatching {
-            val text = file.readText()
-            parsePresetFromXml(text, presetName)
+            parsePresetFromXml(readXml(file), presetName)
+        }.onFailure {
+            android.util.Log.w("BodySlideParser", "Failed to parse preset from ${file.name}: ${it.message}")
         }.getOrNull()
     }
 
