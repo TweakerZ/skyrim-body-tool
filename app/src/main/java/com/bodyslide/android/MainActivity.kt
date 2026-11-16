@@ -29,6 +29,8 @@ import org.json.JSONObject
 import java.io.BufferedOutputStream
 import java.io.File
 import java.io.FileOutputStream
+import java.io.PrintWriter
+import java.io.StringWriter
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -55,6 +57,14 @@ class MainActivity : AppCompatActivity() {
     // selected preset's values. No manual slider editing.
     private var currentDefs: List<SliderDef> = emptyList()
     private var currentPreset: PresetValues? = null
+
+    /** Parsed slider definitions and output key, keyed by file|set name. */
+    private data class SetCacheEntry(val outputKey: String?, val defs: List<SliderDef>)
+    private val setCache = mutableMapOf<String, SetCacheEntry>()
+
+    /** Last thing the build was doing, written into a crash report if it dies. */
+    @Volatile
+    private var buildContext: String = ""
 
     /* Compose-observed state */
     private var projectPath by mutableStateOf<String?>(null)
@@ -87,6 +97,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        installCrashLogger()
 
         statusText = getString(R.string.status_ready)
         groupOptions = listOf(getString(R.string.filter_all))
@@ -147,6 +158,19 @@ class MainActivity : AppCompatActivity() {
 
         updatePathViews()
         refreshStorageStatus()
+        File(filesDir, PROGRESS_FILE).takeIf { it.isFile }?.let { progress ->
+            val where = runCatching { progress.readText() }.getOrNull().orEmpty()
+            if (where.isNotBlank()) log("Previous build stopped at $where")
+            progress.delete()
+        }
+        File(filesDir, CRASH_FILE).takeIf { it.isFile }?.let { crash ->
+            log("Previous session crashed. Saved report:")
+            runCatching { crash.readText() }.getOrNull()?.takeIf { it.isNotBlank() }?.let {
+                sessionLog.appendLine(it.takeLast(4000))
+                logText = sessionLog.toString()
+            }
+            crash.delete()
+        }
         log("App started. ${getString(R.string.app_subtitle)}")
         log("Core: ${NativeBridge.coreInfo()}")
         refreshSummary()
@@ -249,6 +273,12 @@ class MainActivity : AppCompatActivity() {
     // -----------------------------------------------------------------------
 
     private fun maybeScanProject() {
+        outputPath?.let { out ->
+            runCatching {
+                File(out).listFiles { f -> f.isFile && f.name.endsWith(".zip.part") }
+                    ?.forEach { it.delete() }
+            }
+        }
         val current = projectPath ?: return
         val root = File(current)
         if (!root.isDirectory) return
@@ -263,6 +293,7 @@ class MainActivity : AppCompatActivity() {
                     groupMembers = ProjectScanner.findGroupMembers(root)
                 )
             }
+            setCache.clear()
             sliderSets = result.sets
             presets = result.presets
             groups = result.groups
@@ -448,6 +479,7 @@ class MainActivity : AppCompatActivity() {
         if (output.isNullOrBlank()) { toast("Select a mod output folder first"); return }
         if (!batch && outfit == null) { toast("Select an outfit/slider set first"); return }
 
+        if (busy) return
         saveModPrefs()
 
         val targets = if (batch) filteredSets else listOfNotNull(outfit)
@@ -469,48 +501,72 @@ class MainActivity : AppCompatActivity() {
     private fun prepareBuild(targets: List<SliderSetEntry>) {
         statusText = getString(R.string.status_building)
         log(if (targets.size > 1) "Batch build requested (${targets.size} sets)" else "Build requested: ${targets.first().name}")
+        updateBusy(true)
         showProgress(0, targets.size, getString(R.string.progress_preparing))
 
         lifecycleScope.launch {
-            val conflicts = withContext(Dispatchers.IO) { findConflicts(targets) }
-            if (conflicts.isEmpty()) {
-                log(getString(R.string.conflict_summary_free, targets.size))
-                startBuild(targets, emptyMap())
-            } else {
-                hideProgress()
-                statusText = getString(R.string.status_ready)
-                log(getString(R.string.conflict_summary, conflicts.size, targets.size - countLosers(conflicts)))
-                log("Output conflicts: " + conflicts.joinToString { g -> "${g.outputKey} <- ${g.members.joinToString("/") { it.name }}" })
-                showConflictDialog(conflicts) { choices -> startBuild(targets, choices) }
+            try {
+                // Parsing every target is I/O + XML work; keep it off the UI
+                // thread or a 400+ set batch trips the input-dispatch ANR.
+                val conflicts = withContext(Dispatchers.IO) { findConflicts(targets) }
+                updateBusy(false)
+                if (conflicts.isEmpty()) {
+                    log(getString(R.string.conflict_summary_free, targets.size))
+                    startBuild(targets, emptyMap())
+                } else {
+                    statusText = getString(R.string.status_ready)
+                    log(getString(R.string.conflict_summary, conflicts.size, targets.size - countLosers(conflicts)))
+                    val preview = conflicts.take(20).joinToString("; ") { g ->
+                        "${g.outputKey} <- ${g.members.joinToString("/") { it.name }}"
+                    } + if (conflicts.size > 20) "; … (${conflicts.size} total)" else ""
+                    log("Output conflicts: $preview")
+                    showConflictDialog(conflicts) { choices -> startBuild(targets, choices) }
+                }
+            } catch (t: Throwable) {
+                updateBusy(false)
+                statusText = getString(R.string.status_failed)
+                log("Conflict check FAILED: ${t.message}")
+                toast("Conflict check failed: ${t.message}")
             }
         }
     }
 
     private fun startBuild(targets: List<SliderSetEntry>, choices: Map<String, String>) {
-        val resolved = applyConflictChoices(targets, choices)
-        if (resolved.isEmpty()) {
-            toast("Nothing to build after conflict resolution")
-            return
-        }
-
         val project = projectPath!!
         val output = outputPath!!
-        val buildModName = modName.trim().ifBlank { resolved.first().name }
         val zipWanted = packageZip
         val dataRoot = dataRootFor(project)
         val presetEntry = selectedPresetEntry()
 
-        log("Data root (ShapeData): $dataRoot")
-        log("Mod output: $output")
-        log("Mod name: $buildModName  |  Package as zip: $zipWanted")
-        log("Preset: ${presetEntry?.name ?: "(none — using set defaults)"}")
-        log("Building ${resolved.size} set(s): ${resolved.joinToString(", ") { it.name }}")
-
         updateBusy(true)
-        showProgress(0, resolved.size, getString(R.string.progress_preparing))
+        showProgress(0, targets.size, getString(R.string.progress_preparing))
 
         lifecycleScope.launch {
             try {
+                // Resolving conflicts means parsing every target's slider set.
+                // Doing that on the UI thread blocked input for long enough to
+                // ANR on 400+ set batches.
+                val resolved = withContext(Dispatchers.IO) { applyConflictChoices(targets, choices) }
+                if (resolved.isEmpty()) {
+                    toast("Nothing to build after conflict resolution")
+                    return@launch
+                }
+
+                val buildModName = modName.trim().ifBlank { resolved.first().name }
+                val preview = if (resolved.size <= 20) {
+                    resolved.joinToString(", ") { it.name }
+                } else {
+                    resolved.take(20).joinToString(", ") { it.name } + ", … (${resolved.size} total)"
+                }
+
+                log("Data root (ShapeData): $dataRoot")
+                log("Mod output: $output")
+                log("Mod name: $buildModName  |  Package as zip: $zipWanted")
+                log("Preset: ${presetEntry?.name ?: "(none — using set defaults)"}")
+                log("Building ${resolved.size} set(s): $preview")
+
+                showProgress(0, resolved.size, getString(R.string.progress_preparing))
+
                 val summary = withContext(Dispatchers.IO) {
                     // Parse the selected preset here, on the build thread, so the
                     // values used for every target are guaranteed to be loaded.
@@ -523,8 +579,7 @@ class MainActivity : AppCompatActivity() {
                         packageZip = zipWanted,
                         preset = preset,
                         presetName = presetEntry?.name,
-                        onProgress = { done, total, name -> runOnUiThread { showProgress(done, total, name) } },
-                        onPackaging = { runOnUiThread { showPackaging(resolved.size) } }
+                        onProgress = { done, total, name -> runOnUiThread { showProgress(done, total, name) } }
                     )
                 }
                 statusText = getString(R.string.status_done)
@@ -575,18 +630,7 @@ class MainActivity : AppCompatActivity() {
         return result
     }
 
-    private fun outputKeyFor(entry: SliderSetEntry): String? {
-        val json = runCatching {
-            JSONObject(NativeBridge.parseSliderSet(entry.file.absolutePath, entry.name))
-        }.getOrNull() ?: return null
-        if (!json.optBoolean("ok", false)) return null
-
-        val outPath = json.optString("outputPath").trim('/', '\\')
-        val outFile = json.optString("outputFile").ifBlank { entry.name }
-        val genWeights = json.optBoolean("genWeights", false)
-        val full = if (outPath.isEmpty()) outFile else "$outPath/$outFile"
-        return full.lowercase(Locale.ROOT) + if (genWeights) "|gw" else ""
-    }
+    private fun outputKeyFor(entry: SliderSetEntry): String? = cachedSet(entry).outputKey
 
     /**
      * Scroll host for dialog content. AlertDialog re-measures custom views with
@@ -605,6 +649,25 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showConflictDialog(conflicts: List<ConflictGroup>, onResolved: (Map<String, String>) -> Unit) {
+        // Hundreds of radio groups would take seconds to inflate on the UI
+        // thread, so large batches get the "first set wins" shortcut instead.
+        if (conflicts.size > 25) {
+            AlertDialog.Builder(this)
+                .setTitle(R.string.conflict_dialog_title)
+                .setMessage(
+                    "${conflicts.size} output conflicts across " +
+                        "${conflicts.sumOf { it.members.size }} sets. " +
+                        "Resolving each one individually would be a lot of taps; " +
+                        "build in smaller batches with the group filter if you need " +
+                        "per-conflict winners. Continue with the first set winning " +
+                        "each conflict?"
+                )
+                .setPositiveButton(R.string.btn_continue) { _, _ -> onResolved(emptyMap()) }
+                .setNegativeButton(R.string.dialog_cancel, null)
+                .show()
+            return
+        }
+
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(48, 24, 48, 24)
@@ -679,14 +742,12 @@ class MainActivity : AppCompatActivity() {
         packageZip: Boolean,
         preset: PresetValues?,
         presetName: String?,
-        onProgress: (done: Int, total: Int, name: String) -> Unit,
-        onPackaging: (total: Int) -> Unit
+        onProgress: (done: Int, total: Int, name: String) -> Unit
     ): String {
         val staging = File(cacheDir, "bs-staging")
         staging.deleteRecursively()
         staging.mkdirs()
 
-        val built = mutableListOf<Pair<File, String>>()
         val report = StringBuilder()
         report.appendLine(
             "Preset: " + (presetName ?: "(none)") +
@@ -695,80 +756,152 @@ class MainActivity : AppCompatActivity() {
         if (presetName != null && preset == null) {
             report.appendLine("WARNING: preset '$presetName' could not be parsed; using set defaults.")
         }
+
         var builtSets = 0
         var failedSets = 0
+        var fileCount = 0
+        var aborted: String? = null
         val total = targets.size
+        // Per-shape native logs are useful for one-off builds but turn a 400-set
+        // batch into thousands of lines; only warnings survive at that size.
+        val verbose = total <= 10
 
-        targets.forEachIndexed { index, entry ->
-            onProgress(index + 1, total, entry.name)
-            val setStaging = File(staging, "set$index")
-            setStaging.mkdirs()
+        val finalZip = if (packageZip) File(outputDir, "${sanitizeFileName(modName)}.zip") else null
+        // Write to .part and rename at the end: a process kill mid-batch must
+        // not truncate a previously good mod zip.
+        val partZip = finalZip?.let { File(it.absolutePath + ".part") }
+        partZip?.parentFile?.mkdirs()
+        val outRoot = File(outputDir)
+        val zos = partZip?.let { ZipOutputStream(BufferedOutputStream(FileOutputStream(it))) }
+        val writtenDirs = HashSet<String>()
 
-            val values = buildValuesFor(entry, preset)
-            val resultJson = NativeBridge.buildOutfit(
-                dataRoot = dataRoot,
-                ospPath = entry.file.absolutePath,
-                setName = entry.name,
-                outputDir = setStaging.absolutePath,
-                genWeights = true,
-                sliderNames = values.first,
-                bigValues = values.second,
-                smallValues = values.third
-            )
-            val obj = runCatching { JSONObject(resultJson) }.getOrNull()
-            if (obj == null || !obj.optBoolean("ok")) {
-                failedSets++
-                val err = obj?.optString("error")?.takeIf { it.isNotBlank() } ?: "unknown error"
-                report.appendLine("• ${entry.name}: FAILED ($err)")
-                return@forEachIndexed
-            }
-            val files = obj.optJSONArray("files")
-            var count = 0
-            if (files != null) {
-                for (i in 0 until files.length()) {
-                    val f = files.getJSONObject(i)
-                    val stagingPath = f.optString("stagingPath")
-                    val gamePath = f.optString("gamePath")
-                    val src = File(stagingPath)
-                    if (src.isFile && gamePath.isNotBlank()) {
-                        built += src to gamePath
-                        count++
-                    }
+        try {
+            for ((index, entry) in targets.withIndex()) {
+                buildContext = "set ${index + 1}/$total: ${entry.name}"
+                if (index % 20 == 0) saveBuildProgress("set ${index + 1}/$total: ${entry.name}")
+                if (index % 4 == 0 || index == total - 1) {
+                    onProgress(index + 1, total, entry.name)
                 }
+                val setStaging = File(staging, "set$index")
+                setStaging.mkdirs()
+                try {
+                    val values = buildValuesFor(entry, preset)
+                    val resultJson = NativeBridge.buildOutfit(
+                        dataRoot = dataRoot,
+                        ospPath = entry.file.absolutePath,
+                        setName = entry.name,
+                        outputDir = setStaging.absolutePath,
+                        genWeights = true,
+                        sliderNames = values.first,
+                        bigValues = values.second,
+                        smallValues = values.third
+                    )
+                    val obj = runCatching { JSONObject(resultJson) }.getOrNull()
+                    if (obj == null || !obj.optBoolean("ok")) {
+                        failedSets++
+                        val err = obj?.optString("error")?.takeIf { it.isNotBlank() } ?: "unknown error"
+                        report.appendLine("• ${entry.name}: FAILED ($err)")
+                        continue
+                    }
+
+                    var count = 0
+                    val files = obj.optJSONArray("files")
+                    if (files != null) {
+                        for (i in 0 until files.length()) {
+                            val f = files.getJSONObject(i)
+                            val gamePath = f.optString("gamePath").replace('\\', '/').trimStart('/')
+                            val src = File(f.optString("stagingPath"))
+                            if (!src.isFile || gamePath.isEmpty()) continue
+
+                            if (zos != null) {
+                                addZipDirs(zos, writtenDirs, gamePath)
+                                zos.putNextEntry(ZipEntry(gamePath))
+                                src.inputStream().use { it.copyTo(zos) }
+                                zos.closeEntry()
+                            } else {
+                                val dest = File(outRoot, gamePath)
+                                dest.parentFile?.mkdirs()
+                                src.copyTo(dest, overwrite = true)
+                            }
+                            count++
+                            fileCount++
+                        }
+                    }
+
+                    builtSets++
+                    report.appendLine("• ${entry.name}: $count NIF(s)")
+                    obj.optJSONArray("log")?.let { arr ->
+                        for (i in 0 until arr.length()) {
+                            val line = arr.optString(i)
+                            if (verbose || line.startsWith("Warning:") || line.startsWith("Failed")) {
+                                report.appendLine("  ${entry.name}: $line")
+                            }
+                        }
+                    }
+                } catch (t: Throwable) {
+                    // One bad set must not throw away the whole batch: keep the
+                    // meshes already written and report the failure.
+                    failedSets++
+                    val detail = t.message?.let { ": $it" } ?: ""
+                    report.appendLine("• ${entry.name}: FAILED (${t::class.java.simpleName}$detail)")
+                    if (t is OutOfMemoryError) aborted = "out of memory"
+                } finally {
+                    // Free this set's meshes right away; a 400+ set batch would
+                    // otherwise fill the cache partition before packaging starts.
+                    setStaging.deleteRecursively()
+                }
+                if (aborted != null) break
             }
-            builtSets++
-            report.appendLine("• ${entry.name}: $count NIF(s)")
-            obj.optJSONArray("log")?.let { arr ->
-                for (i in 0 until arr.length()) log("  ${entry.name}: ${arr.optString(i)}")
-            }
+        } catch (t: Throwable) {
+            if (fileCount == 0) partZip?.delete()
+            throw t
+        } finally {
+            buildContext = ""
+            if (zos != null) runCatching { zos.close() }
+            staging.deleteRecursively()
         }
 
-        if (built.isEmpty()) {
+        if (fileCount == 0) {
+            partZip?.delete()
+            report.appendLine()
             report.appendLine("No meshes were produced. Check that ShapeData and the set's morph data exist.")
+            if (aborted != null) report.appendLine("ABORTED: $aborted.")
+            clearBuildProgress()
             return report.toString()
         }
 
-        onPackaging(total)
-        if (packageZip) {
-            val zipFile = File(outputDir, "${sanitizeFileName(modName)}.zip")
-            zipFile.parentFile?.mkdirs()
-            writeModZip(built, zipFile)
-            report.appendLine()
-            report.appendLine(getString(R.string.mod_zip_created, zipFile.absolutePath))
-            report.appendLine("(${built.size} files from $builtSets set(s)${if (failedSets > 0) ", $failedSets failed" else ""})")
-        } else {
-            val outRoot = File(outputDir)
-            for ((src, gamePath) in built) {
-                val dest = File(outRoot, gamePath)
-                dest.parentFile?.mkdirs()
-                src.copyTo(dest, overwrite = true)
+        if (partZip != null && finalZip != null) {
+            finalZip.delete()
+            if (!partZip.renameTo(finalZip)) {
+                report.appendLine("Could not move ${partZip.name} to ${finalZip.name}; the finished zip is at ${partZip.absolutePath}")
             }
-            report.appendLine()
-            report.appendLine(getString(R.string.mod_files_written, built.size, outRoot.absolutePath))
         }
 
-        staging.deleteRecursively()
+        report.appendLine()
+        if (finalZip != null) {
+            report.appendLine(getString(R.string.mod_zip_created, finalZip.absolutePath))
+            report.appendLine("($fileCount files from $builtSets set(s)${if (failedSets > 0) ", $failedSets failed" else ""})")
+        } else {
+            report.appendLine(getString(R.string.mod_files_written, fileCount, outRoot.absolutePath))
+        }
+        if (aborted != null) {
+            report.appendLine("ABORTED: $aborted after $builtSets set(s); the output contains every completed mesh.")
+        }
+        clearBuildProgress()
         return report.toString()
+    }
+
+    /** Adds missing parent directory entries before a file entry. */
+    private fun addZipDirs(zos: ZipOutputStream, written: MutableSet<String>, entryName: String) {
+        var idx = entryName.indexOf('/')
+        while (idx > 0) {
+            val dir = entryName.substring(0, idx + 1)
+            if (written.add(dir)) {
+                zos.putNextEntry(ZipEntry(dir))
+                zos.closeEntry()
+            }
+            idx = entryName.indexOf('/', idx + 1)
+        }
     }
 
     /**
@@ -778,35 +911,60 @@ class MainActivity : AppCompatActivity() {
      * so the names sent back in the value arrays always match the sliders the
      * build looks up. The Kotlin XML parser is only a fallback for the case
      * where the native core could not read the file.
+     *
+     * Results are cached per set: a batch build asks for the same set's
+     * definitions when resolving conflicts and again when building.
      */
-    private fun parseDefs(entry: SliderSetEntry): List<SliderDef> {
-        val native = nativeSliderDefs(entry)
-        if (native.isNotEmpty()) return native
-        return BodySlideParser.parseSlidersForSet(entry.file, entry.name)
+    private fun parseDefs(entry: SliderSetEntry): List<SliderDef> = cachedSet(entry).defs
+
+    private fun cachedSet(entry: SliderSetEntry): SetCacheEntry {
+        val key = entry.file.absolutePath + "|" + entry.name
+        setCache[key]?.let { return it }
+
+        val json = runCatching {
+            JSONObject(NativeBridge.parseSliderSet(entry.file.absolutePath, entry.name))
+        }.getOrNull()
+        val parsed = json?.optBoolean("ok") == true
+
+        val defs = when {
+            parsed -> defsFromJson(json!!)
+            else -> emptyList()
+        }.ifEmpty {
+            BodySlideParser.parseSlidersForSet(entry.file, entry.name)
+        }
+        val outputKey = if (parsed) outputKeyFromJson(json!!, entry) else null
+
+        val cached = SetCacheEntry(outputKey, defs)
+        if (setCache.size > 1500) setCache.clear()
+        setCache[key] = cached
+        return cached
     }
 
-    private fun nativeSliderDefs(entry: SliderSetEntry): List<SliderDef> {
-        val json = NativeBridge.parseSliderSet(entry.file.absolutePath, entry.name)
-        return runCatching {
-            val root = JSONObject(json)
-            if (!root.optBoolean("ok")) return emptyList()
-            val arr = root.optJSONArray("sliders") ?: return emptyList()
-            (0 until arr.length()).mapNotNull { i ->
-                val o = arr.optJSONObject(i) ?: return@mapNotNull null
-                val name = o.optString("name")
-                if (name.isBlank()) return@mapNotNull null
-                SliderDef(
-                    name = name,
-                    invert = o.optBoolean("invert"),
-                    zap = o.optBoolean("zap"),
-                    hidden = o.optBoolean("hidden"),
-                    clamp = o.optBoolean("clamp"),
-                    uv = o.optBoolean("uv"),
-                    defaultBig = o.optDouble("defaultBig", 0.0).toInt(),
-                    defaultSmall = o.optDouble("defaultSmall", 0.0).toInt()
-                )
-            }
-        }.getOrDefault(emptyList())
+    private fun defsFromJson(root: JSONObject): List<SliderDef> {
+        val arr = root.optJSONArray("sliders") ?: return emptyList()
+        return (0 until arr.length()).mapNotNull { i ->
+            val o = arr.optJSONObject(i) ?: return@mapNotNull null
+            val name = o.optString("name")
+            if (name.isBlank()) return@mapNotNull null
+            SliderDef(
+                name = name,
+                invert = o.optBoolean("invert"),
+                zap = o.optBoolean("zap"),
+                hidden = o.optBoolean("hidden"),
+                clamp = o.optBoolean("clamp"),
+                uv = o.optBoolean("uv"),
+                defaultBig = o.optDouble("defaultBig", 0.0).toInt(),
+                defaultSmall = o.optDouble("defaultSmall", 0.0).toInt()
+            )
+        }
+    }
+
+    private fun outputKeyFromJson(json: JSONObject, entry: SliderSetEntry): String? {
+        val outPath = json.optString("outputPath").trim('/', '\\')
+        val outFile = json.optString("outputFile").ifBlank { entry.name }
+        val genWeights = json.optBoolean("genWeights", false)
+        val full = if (outPath.isEmpty()) outFile else "$outPath/$outFile"
+        return full.lowercase(Locale.ROOT) + if (genWeights) "|gw" else ""
     }
 
     /** Build values for a set: its definitions plus the given preset, no manual edits. */
@@ -823,37 +981,6 @@ class MainActivity : AppCompatActivity() {
         return composeValues(defs, preset)
     }
 
-    private fun writeModZip(files: List<Pair<File, String>>, zipFile: File) {
-        // De-duplicate by archive entry name (last build wins).
-        val entries = linkedMapOf<String, File>()
-        for ((src, gamePath) in files) {
-            val entryName = gamePath.replace('\\', '/').trimStart('/')
-            if (entryName.isNotEmpty()) entries[entryName] = src
-        }
-
-        ZipOutputStream(BufferedOutputStream(FileOutputStream(zipFile))).use { zos ->
-            // Game-data-relative entries at the archive root so the mod loader
-            // recognises the layout and deploys into the game's Data folder.
-            val dirs = linkedSetOf<String>()
-            for (entryName in entries.keys) {
-                var idx = entryName.indexOf('/')
-                while (idx > 0) {
-                    dirs += entryName.substring(0, idx + 1)
-                    idx = entryName.indexOf('/', idx + 1)
-                }
-            }
-            for (dir in dirs) {
-                zos.putNextEntry(ZipEntry(dir))
-                zos.closeEntry()
-            }
-            for ((entryName, src) in entries) {
-                zos.putNextEntry(ZipEntry(entryName))
-                src.inputStream().use { it.copyTo(zos) }
-                zos.closeEntry()
-            }
-        }
-    }
-
     private fun sanitizeFileName(name: String): String {
         val cleaned = name.trim().replace(Regex("[\\\\/:*?\"<>|]"), "_")
         return cleaned.ifBlank { "BodySlide Build" }
@@ -865,10 +992,6 @@ class MainActivity : AppCompatActivity() {
 
     private fun showProgress(done: Int, total: Int, name: String) {
         progressText = getString(R.string.progress_text, done.coerceAtMost(total), total, name)
-    }
-
-    private fun showPackaging(total: Int) {
-        progressText = getString(R.string.progress_packaging)
     }
 
     private fun hideProgress() {
@@ -902,9 +1025,48 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
+    /**
+     * Persists the last uncaught exception plus the build step that was running,
+     * so a native/Java crash in a long batch leaves something to inspect after
+     * the process dies.
+     */
+    private fun saveBuildProgress(text: String) {
+        runCatching { File(filesDir, PROGRESS_FILE).writeText(text) }
+    }
+
+    private fun clearBuildProgress() {
+        runCatching { File(filesDir, PROGRESS_FILE).delete() }
+    }
+
+    private fun installCrashLogger() {
+        val fallback = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, error ->
+            runCatching {
+                val trace = StringWriter()
+                error.printStackTrace(PrintWriter(trace))
+                val rt = Runtime.getRuntime()
+                val heap = "heap ${(rt.totalMemory() - rt.freeMemory()) / (1024 * 1024)}" +
+                    "/${rt.maxMemory() / (1024 * 1024)} MB"
+                File(filesDir, CRASH_FILE).writeText(
+                    buildString {
+                        appendLine("${Date()}  thread=${thread.name}  $heap")
+                        if (buildContext.isNotBlank()) appendLine("last build step: $buildContext")
+                        appendLine(trace.toString())
+                    }
+                )
+            }
+            fallback?.uncaughtException(thread, error)
+        }
+    }
+
     private fun log(message: String) {
         val ts = SimpleDateFormat("HH:mm:ss", Locale.US).format(Date())
         sessionLog.appendLine("[$ts] $message")
+        // Keep the in-memory log bounded: a long 400+ set batch can otherwise
+        // copy megabytes into Compose state on every line.
+        if (sessionLog.length > LOG_MAX_CHARS) {
+            sessionLog.delete(0, sessionLog.length - LOG_KEEP_CHARS)
+        }
         logText = sessionLog.toString()
     }
 
@@ -913,6 +1075,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     companion object {
+        private const val CRASH_FILE = "crash-last.txt"
+        private const val PROGRESS_FILE = "build-progress.txt"
+        private const val LOG_MAX_CHARS = 200_000
+        private const val LOG_KEEP_CHARS = 150_000
         private const val PREFS = "bodyslide_android"
         private const val PREF_PROJECT_PATH = "project_path"
         private const val PREF_GAME_DATA_PATH = "game_data_path"

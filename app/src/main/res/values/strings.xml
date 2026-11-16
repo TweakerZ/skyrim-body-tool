@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Skyrim Body Tool</string>
-    <string name="app_subtitle">Skyrim LE · static Android port · preset-driven builder</string>
+    <string name="app_subtitle">Skyrim LE · preset builder</string>
 
     <!-- Storage -->
     <string name="storage_checking">Checking storage access...</string>
@@ -20,7 +20,7 @@
 
     <!-- Target -->
     <string name="label_target_game">Target</string>
-    <string name="target_skyrim_le">Skyrim Legendary Edition (static Android port)</string>
+    <string name="target_skyrim_le">Skyrim Legendary Edition</string>
 
     <!-- Paths -->
     <string name="label_game_data">Game / mod data folder</string>
