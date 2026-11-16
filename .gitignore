@@ -20,6 +20,7 @@ local.properties
 # Signing material
 *.jks
 *.keystore
+keystore.properties
 
 # Test fixture copy of a Skyrim mod project (210 MB of ShapeData).
 # Not needed to build the app; keep it out of the repo.

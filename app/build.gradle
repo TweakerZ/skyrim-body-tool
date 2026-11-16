@@ -4,6 +4,15 @@ plugins {
     id 'org.jetbrains.kotlin.plugin.compose'
 }
 
+// Release signing material lives outside the repository. keystore.properties
+// points at the keystore and holds its passwords; without that file a release
+// build is simply unsigned (useful for CI or a quick local check).
+def keystorePropertiesFile = rootProject.file('keystore.properties')
+def keystoreProperties = new Properties()
+if (keystorePropertiesFile.exists()) {
+    keystorePropertiesFile.withInputStream { keystoreProperties.load(it) }
+}
+
 android {
     namespace 'com.bodyslide.android'
     compileSdk 34
@@ -26,10 +35,24 @@ android {
         }
     }
 
+    signingConfigs {
+        if (keystorePropertiesFile.exists()) {
+            release {
+                storeFile file(keystoreProperties['storeFile'])
+                storePassword keystoreProperties['storePassword']
+                keyAlias keystoreProperties['keyAlias']
+                keyPassword keystoreProperties['keyPassword']
+            }
+        }
+    }
+
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            if (keystorePropertiesFile.exists()) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 
@@ -47,9 +70,10 @@ android {
         buildConfig true
     }
 
-    // Shared Material You design system (sibling repository).
+    // Shared Material You design system, vendored from the suite's UI module so
+    // this repository builds on its own.
     sourceSets {
-        main.java.srcDirs += rootProject.file('../skyrim-suite-ui/src/main/kotlin')
+        main.java.srcDirs += rootProject.file('suite-ui/src/main/kotlin')
     }
 
     externalNativeBuild {
