@@ -1,6 +1,8 @@
-# Skyrim Body Tool (Android)
+# Body Tool (Android)
 
 An Android app that builds Skyrim Legendary Edition outfit, body and clothing meshes from BodySlide presets on device. It reads a BodySlide project, applies the selected preset to the sets you choose, and writes an installable mod zip. Built for static Skyrim LE Android ports, where the desktop BodySlide workflow means copying a project off the phone and the meshes back on.
+
+The app has no launcher icon. Skyrim Mod Loader lists it in its plugin section and starts it from there.
 
 ![Main screen](docs/screenshot-main.png)
 
@@ -25,7 +27,7 @@ An Android app that builds Skyrim Legendary Edition outfit, body and clothing me
 
 ## Usage
 
-1. Download `SkyrimBodyTool-<version>.apk` from [Releases](https://github.com/TweakerZ/skyrim-body-tool/releases) and install it.
+1. Download `BodyTool-<version>.apk` from [Releases](https://github.com/TweakerZ/skyrim-body-tool/releases) and install it. There is no launcher icon; open the app from the plugin section of Skyrim Mod Loader.
 2. Open **Advanced settings** and set the BodySlide project folder, the game/mod data folder and the output folder.
 3. Pick a group filter, an outfit and a preset. **Preset values** shows what the preset applies.
 4. **Build** one set or **Batch build** the current filter, then install the resulting zip with your mod loader.

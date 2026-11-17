@@ -4,7 +4,7 @@ Use this for the GitHub release body and `releases/notes/<version>.md`.
 
 ## Title
 
-`Skyrim Body Tool <version>`
+`Body Tool <version>`
 
 ## Body
 
@@ -16,7 +16,7 @@ Use this for the GitHub release body and `releases/notes/<version>.md`.
 
 **Install**
 
-Download `SkyrimBodyTool-<version>.apk` and install it over the existing app. Android 7.0 (API 24) or newer, arm64.
+Download `BodyTool-<version>.apk` and install it over the existing app. Android 7.0 (API 24) or newer, arm64.
 
 **Notes**
 
