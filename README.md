@@ -22,6 +22,7 @@ The app has no launcher icon. Skyrim Mod Loader lists it in its plugin section a
 
 - Android 7.0 (API 24) or newer, `arm64-v8a`.
 - All files access. Projects and mod zips live on shared storage, so the app needs real file paths.
+- Skyrim Mod Loader, which starts the app from its plugin section. There is no launcher icon.
 - A Skyrim Legendary Edition static Android port. Special Edition and Fallout 4 are not supported.
 - A BodySlide project folder with `SliderSets`, `SliderPresets`, `SliderGroups` and `ShapeData`, for example `CalienteTools/BodySlide` from CBBE, HIMBO or a refit pack.
 
