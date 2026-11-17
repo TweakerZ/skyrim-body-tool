@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Skyrim Body Tool</string>
+    <string name="app_name">Body Tool</string>
     <string name="app_subtitle">Skyrim LE · preset builder</string>
 
     <!-- Storage -->

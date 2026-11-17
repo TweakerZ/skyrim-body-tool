@@ -23,9 +23,11 @@
             android:name=".MainActivity"
             android:exported="true"
             android:windowSoftInputMode="adjustResize">
+            <!-- No MAIN/LAUNCHER filter: the app stays out of the drawer and is
+                 started by Skyrim Mod Loader through this action. -->
             <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
+                <action android:name="com.skyrimandroid.bodytool.LAUNCH" />
+                <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
     </application>
