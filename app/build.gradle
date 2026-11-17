@@ -13,6 +13,11 @@ if (keystorePropertiesFile.exists()) {
     keystorePropertiesFile.withInputStream { keystoreProperties.load(it) }
 }
 
+// Version name and code live in version.properties so the tag, the APK and
+// the release notes all quote the same numbers.
+def versionProperties = new Properties()
+rootProject.file('version.properties').withInputStream { versionProperties.load(it) }
+
 android {
     namespace 'com.bodyslide.android'
     compileSdk 34
@@ -21,8 +26,8 @@ android {
         applicationId 'com.bodyslide.android'
         minSdk 24
         targetSdk 34
-        versionCode 1
-        versionName '0.1.0'
+        versionCode versionProperties['VERSION_CODE'].toInteger()
+        versionName versionProperties['VERSION_NAME']
 
         ndk {
             // Skyrim LE static Android ports are typically arm64.
