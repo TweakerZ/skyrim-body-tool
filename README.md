@@ -1,114 +1,75 @@
-# Skyrim Body Tool
+# Skyrim Body Tool (Android)
 
-Apply BodySlide presets to Skyrim Legendary Edition outfits, bodies and clothing on an Android phone, then pack the built meshes into a mod zip you can install with a mod loader.
+An Android app that builds Skyrim Legendary Edition outfit, body and clothing meshes from BodySlide presets on device. It reads a BodySlide project, applies the selected preset to the sets you choose, and writes an installable mod zip. Built for static Skyrim LE Android ports, where the desktop BodySlide workflow means copying a project off the phone and the meshes back on.
 
-This is an unofficial Android port of the BodySlide build step, written for the static Skyrim LE Android ports. It does not need a PC, Wine or a Windows emulator, and it produces the same kind of `meshes/...` output the desktop tool writes.
-
-<p>
-  <img src="docs/screenshot-main.png" width="320" alt="Applying a CBBE preset to a slider set">
-  <img src="docs/screenshot-settings.png" width="320" alt="Advanced settings: project, data and output folders">
-</p>
+![Main screen](docs/screenshot-main.png)
 
 ## What it does
 
-- **Preset-driven builds.** Pick a preset once and it is applied to every set you build. Slider values are composed from the set's own definitions, weight-0 defaults and the preset; nothing has to be edited by hand.
-- **Works on outfits, not just bodies.** Armor, clothing and body sets all go through the same build path, including zap sliders that remove covered skin shapes.
-- **Batch builds.** Build one outfit or every set matching a group filter. A 111-set batch runs in roughly 15 seconds on a OnePlus 9; 400+ sets are supported.
-- **Conflict handling.** Several outfits often write the same `_0.nif`/`_1.nif`. Before building, the app groups sets by output file and lets you pick the winner per file. The losers are skipped for that file only.
-- **Installable output.** Built meshes are written into a zip with game-relative paths (`meshes/armor/...`), named after the mod name you enter, ready for a mod loader.
-- **Progress and diagnostics.** Per-set progress, a capped build log, a checkpoint file every 20 sets, and a crash report (`crash-last.txt`) that records the last build step, heap size and stack trace.
-- **No damage on failure.** One bad set fails alone. The zip is streamed to `<name>.zip.part` and renamed when complete, so a kill or a crash cannot truncate a previously good build.
+- Applies one preset to every set you build: body, armor and clothing, including zap sliders that remove covered skin shapes.
+- Batch builds every set in a group filter. 111 sets take about 15 seconds on a OnePlus 9.
+- Resolves output conflicts per file. When sets write the same `_0.nif`/`_1.nif`, pick the winner and skip the rest for that file only.
+- Writes a mod zip with game-relative paths (`meshes/...`), named after the mod name you enter.
+- Streams output into `<name>.zip.part` and renames it on success, so a failed build cannot truncate a previous good zip.
+- Controls slider values from the preset: no manual editing, no pinned preview.
+- Records the last build step and writes `crash-last.txt` if a build dies; both are reported in the log at the next launch.
+
+![Advanced settings](docs/screenshot-settings.png)
 
 ## Requirements
 
-- Skyrim **Legendary Edition** (not Special Edition, not Fallout 4) running through a static Android port.
-- An `arm64-v8a` Android device, Android 7.0 (API 24) or newer.
-- A BodySlide project folder containing `SliderSets`, `SliderPresets`, `SliderGroups` and `ShapeData` — normally the `CalienteTools/BodySlide` folder from CBBE, HIMBO, a refit pack or a similar mod.
-- The mod data folder the port actually reads (`.../Data`), so the shape morph data can be resolved.
-
-## Install
-
-1. Download the APK from [Releases](../../releases).
-2. Allow installs from your browser or file manager, then open the APK.
-3. Launch the app and grant **All files access**. Real filesystem paths are needed to read mod projects and write the finished zip; scoped storage cannot reach them.
-
-If the APK will not install over an older build, uninstall the old app first. Releases are signed with the project key, so a debug build cannot be updated in place.
+- Android 7.0 (API 24) or newer, `arm64-v8a`.
+- All files access. Projects and mod zips live on shared storage, so the app needs real file paths.
+- A Skyrim Legendary Edition static Android port. Special Edition and Fallout 4 are not supported.
+- A BodySlide project folder with `SliderSets`, `SliderPresets`, `SliderGroups` and `ShapeData`, for example `CalienteTools/BodySlide` from CBBE, HIMBO or a refit pack.
 
 ## Usage
 
-1. Open **Advanced settings** (the gear) and set:
-   - **BodySlide project folder** — the folder with `SliderSets` / `SliderPresets` / `SliderGroups`.
-   - **Game / mod data folder** — the folder holding `Data` (meshes and the ShapeData used by the sets).
-   - **Mod output folder** — where the zip is written; usually your mod-manager downloads folder.
-2. Pick a **group filter** and an **outfit / body**.
-3. Pick a **preset**. The read-only *Preset values* card shows what will be applied to the selected set.
-4. Set the **mod name** (it becomes the zip filename) and leave **Package built meshes as a mod zip** enabled.
-5. Tap **Build** for one set, or **Batch build** for every set in the current filter.
-6. Install the resulting `<mod name>.zip` with your mod loader.
+1. Download `SkyrimBodyTool-<version>.apk` from [Releases](https://github.com/TweakerZ/skyrim-body-tool/releases) and install it.
+2. Open **Advanced settings** and set the BodySlide project folder, the game/mod data folder and the output folder.
+3. Pick a group filter, an outfit and a preset. **Preset values** shows what the preset applies.
+4. **Build** one set or **Batch build** the current filter, then install the resulting zip with your mod loader.
 
-Sets are never modified. Only the built NIFs are written, and only into the output folder or zip.
+## Building
 
-## How it works
-
-- `app/src/main/cpp/bs_build.cpp` is the build core: it parses slider sets/presets, resolves the meshes each set needs, applies shape morphs and writes NIFs through [nifly](https://github.com/ousnius/nifly). It follows the behaviour of BodySlide and Outfit Studio's outfit build.
-- The Kotlin side scans the project, indexes presets and groups, resolves per-output-file conflicts, and assembles the zip. Parsing and building run on `Dispatchers.IO`; the UI thread never touches JNI during a batch.
-- Slider-set XML with a UTF-8 BOM is handled explicitly: the native parser is authoritative and the Kotlin XML parser is only a fallback.
-- Built file paths inside the zip are relative to the game data folder, so the archive root is `meshes/`.
-
-## Build from source
-
-Prerequisites:
-
-- JDK 17
-- Android SDK 34 and build-tools
-- Android NDK `27.3.13750724`
-- CMake `3.22.1`
+Requires JDK 17, an Android SDK with build-tools 34, NDK `27.3.13750724` and CMake `3.22.1`.
 
 ```bash
 git clone --recursive https://github.com/TweakerZ/skyrim-body-tool.git
 cd skyrim-body-tool
 echo "sdk.dir=/path/to/Android/sdk" > local.properties
-./gradlew assembleDebug
+./gradlew :app:assembleRelease
 ```
 
-The `nifly` submodule is required; `--recursive` or `git submodule update --init --recursive` fetches it.
-
-For a signed release build, create a keystore outside the repository and add a `keystore.properties` file at the project root (it is gitignored):
+Release signing reads `keystore.properties` from the project root:
 
 ```properties
-storeFile=/absolute/path/to/release.jks
+storeFile=/absolute/path/to/your.jks
 storePassword=...
 keyAlias=...
 keyPassword=...
 ```
 
-Then run `./gradlew assembleRelease`. Without `keystore.properties` the release variant builds unsigned.
+Without that file the release build is unsigned. The Compose components come from the vendored `skyrim-suite-ui` sources in `suite-ui/`, so a fresh clone builds on its own.
+
+## Layout
+
+- `app/src/main/cpp/` – build core: slider set and preset parsing, morph application, NIF read/write.
+- `app/src/main/java/com/bodyslide/android/` – project scanning, preset parsing, conflict resolution, zip packaging and the Compose UI.
+- `app/src/main/cpp/third_party/` – `nifly` submodule and `tinyxml2`.
+- `suite-ui/` – shared Compose components used by the Skyrim Android tools.
 
 ## Suite
 
-Part of a set of Android tools for Skyrim LE static ports:
-
-- [Skyrim Mod Loader](https://github.com/TweakerZ/Skyrim-Mod-Loader) — mod management, install order and launching the game with a chosen profile.
-- [Skyrim Anim Tool](https://github.com/TweakerZ/skyrim-anim-tool) — FNIS Behavior options, patches and script management.
-- [LOOT Android](https://github.com/TweakerZ/loot-android) — load-order sorting and plugin conflict checks.
-- [Skyrim Body Tool](https://github.com/TweakerZ/skyrim-body-tool) — this app: BodySlide preset builds on device.
+- [Skyrim Mod Loader](https://github.com/TweakerZ/Skyrim-Mod-Loader) installs mods, orders plugins and deploys the game folder.
+- [Skyrim Anim Tool](https://github.com/TweakerZ/skyrim-anim-tool) manages FNIS Behavior options, patches and scripts.
+- [LOOT Android](https://github.com/TweakerZ/loot-android) sorts plugin load order.
 
 ## Credits
 
-This project is a derivative work. Most of the hard parts are other people's work:
+A port of the [BodySlide and Outfit Studio](https://github.com/ousnius/BodySlide-and-Outfit-Studio) build step by Ousnius and Caliente, GPL-3.0. Mesh parsing and writing use [nifly](https://github.com/ousnius/nifly); XML parsing uses tinyxml2. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the full list and [LICENSE](LICENSE) for the GPL-3.0 text.
 
-- **[BodySlide and Outfit Studio](https://github.com/ousnius/BodySlide-and-Outfit-Studio)** — Ousnius and Caliente, GPL-3.0. The build pipeline, slider-set/preset semantics and NIF output behaviour implemented here come from BodySlide and Outfit Studio.
-- **[nifly](https://github.com/ousnius/nifly)** — Ousnius, GPL-3.0. NIF parsing and writing (pinned at `40584be`).
-- **[tinyxml2](https://github.com/leethomason/tinyxml2)** 11.0.0 — Lee Thomason, zlib licence. XML parsing for slider sets and presets.
-- **CBBE** — Caliente and Ousnius. Slider sets and presets used as the reference implementation and for testing.
-- **Remodeled Armor for CBBE BodySlide HDT Replacer** — CT77. Outfit sets used for testing the armor/refit build path.
-- **Jetpack Compose and Material 3** — Android Open Source Project, Apache-2.0. Application UI.
-- The suite's shared Compose components live in `suite-ui/` in this repository; they are also used by the other apps above.
+This is an unofficial fan tool. Skyrim and its assets belong to Bethesda Softworks.
 
-Skyrim, The Elder Scrolls and related marks are trademarks of Bethesda Softworks LLC. This project is unofficial and is not affiliated with or endorsed by Bethesda Softworks, Ousnius, Caliente or CT77. No game assets are bundled; meshes are generated from mods installed on your own device.
-
-## Licence
-
-GPL-3.0. See [LICENSE](LICENSE) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
-
-The project is GPL-3.0 because it is derived from BodySlide and Outfit Studio and links nifly, both of which are GPL-3.0. If you redistribute a modified APK, the corresponding source must be available under the same licence.
+> [!NOTE]
+> Yes, AI was used in building this.
