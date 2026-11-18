@@ -1,28 +1,14 @@
 package com.bodyslide.android
 
-import android.graphics.Typeface
 import android.net.Uri
 import android.os.Bundle
-import android.text.InputType
-import android.view.View
-import android.view.ViewGroup
-import android.widget.BaseAdapter
-import android.widget.EditText
-import android.widget.FrameLayout
-import android.widget.LinearLayout
-import android.widget.ListView
-import android.widget.RadioButton
-import android.widget.RadioGroup
-import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.skyrimsuite.ui.theme.SkyrimSuiteTheme
 import kotlinx.coroutines.Dispatchers
@@ -91,6 +77,13 @@ class MainActivity : AppCompatActivity() {
     private var packageZip by mutableStateOf(true)
     private var logText by mutableStateOf("")
     private var logExpanded by mutableStateOf(false)
+    private var logDialogText by mutableStateOf<String?>(null)
+    private var pathPromptTarget by mutableStateOf<PickTarget?>(null)
+    private var pathPromptInitial by mutableStateOf("/storage/emulated/0/")
+    private var confirmDialog by mutableStateOf<ConfirmDialogUi?>(null)
+    private var pendingConfirm by mutableStateOf<(() -> Unit)?>(null)
+    private var conflictGroups by mutableStateOf<List<ConflictGroupUi>?>(null)
+    private var conflictResolver by mutableStateOf<((Map<String, String>) -> Unit)?>(null)
 
     private val directoryPicker = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         val target = pendingPick ?: return@registerForActivityResult
@@ -154,7 +147,28 @@ class MainActivity : AppCompatActivity() {
                     onGrantStorage = { StoragePaths.requestAllFilesAccess(this) },
                     onBuild = { runBuild(batch = false) },
                     onBatchBuild = { runBuild(batch = true) },
-                    onViewLogs = { showLogsDialog() }
+                    onViewLogs = { showLogsDialog() },
+                    confirmDialog = confirmDialog,
+                    onConfirmDialogConfirm = {
+                        val action = pendingConfirm
+                        confirmDialog = null
+                        pendingConfirm = null
+                        action?.invoke()
+                    },
+                    onConfirmDialogDismiss = {
+                        confirmDialog = null
+                        pendingConfirm = null
+                    },
+                    logDialogText = logDialogText,
+                    onLogDialogDismiss = { logDialogText = null },
+                    pathPromptTitle = pathPromptTarget?.let(::pathPromptTitle),
+                    pathPromptInitial = pathPromptInitial,
+                    onPathPromptConfirm = { path -> confirmPathPrompt(path) },
+                    onPathPromptDismiss = { pathPromptTarget = null },
+                    conflictGroups = conflictGroups,
+                    onConflictConfirm = { choices -> resolveConflicts(choices) },
+                    onConflictContinue = { resolveConflicts(emptyMap()) },
+                    onConflictCancel = { clearConflict() }
                 )
             }
         }
@@ -205,20 +219,22 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun promptForManualPath(target: PickTarget) {
-        val input = EditText(this).apply {
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
-            hint = "/storage/emulated/0/..."
+        pathPromptInitial = "/storage/emulated/0/"
+        pathPromptTarget = target
+    }
+
+    private fun pathPromptTitle(target: PickTarget): String = getString(
+        when (target) {
+            PickTarget.PROJECT -> R.string.label_project_path
+            PickTarget.GAME_DATA -> R.string.label_game_data
+            PickTarget.OUTPUT -> R.string.label_output_path
         }
-        AlertDialog.Builder(this)
-            .setTitle(getString(R.string.btn_select))
-            .setMessage("Could not resolve a real filesystem path from the picker. Enter the absolute path.")
-            .setView(input)
-            .setPositiveButton(R.string.dialog_ok) { _, _ ->
-                val path = input.text?.toString()?.trim().orEmpty()
-                if (path.isNotEmpty()) applyPath(target, path)
-            }
-            .setNegativeButton(R.string.dialog_cancel, null)
-            .show()
+    )
+
+    private fun confirmPathPrompt(path: String) {
+        val target = pathPromptTarget ?: return
+        pathPromptTarget = null
+        if (path.isNotBlank()) applyPath(target, path)
     }
 
     private fun applyPath(target: PickTarget, path: String) {
@@ -490,12 +506,12 @@ class MainActivity : AppCompatActivity() {
 
         val presetName = selectedPresetEntry()?.name
         if (presetName == null) {
-            AlertDialog.Builder(this)
-                .setTitle(R.string.label_preset)
-                .setMessage("No preset selected. The build will use each set's default values. Continue?")
-                .setPositiveButton(R.string.btn_continue) { _, _ -> prepareBuild(targets) }
-                .setNegativeButton(R.string.dialog_cancel, null)
-                .show()
+            showConfirm(
+                title = getString(R.string.label_preset),
+                body = "No preset selected. The build will use each set's default values. Continue?",
+                confirmLabel = getString(R.string.btn_continue),
+                onConfirm = { prepareBuild(targets) }
+            )
         } else {
             prepareBuild(targets)
         }
@@ -635,185 +651,43 @@ class MainActivity : AppCompatActivity() {
 
     private fun outputKeyFor(entry: SliderSetEntry): String? = cachedSet(entry).outputKey
 
-    /**
-     * Scroll host for dialog content. AlertDialog re-measures custom views with
-     * WRAP_CONTENT, so a long list would push the dialog buttons off-screen.
-     */
-    private fun dialogScrollView(): MaxHeightScrollView {
-        val screenHeight = resources.displayMetrics.heightPixels
-        return MaxHeightScrollView(this).apply {
-            maxHeightPx = (screenHeight * 0.55f).toInt()
-            isFillViewport = false
-            layoutParams = ViewGroup.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            )
-        }
+    private fun showConfirm(
+        title: String,
+        body: String,
+        confirmLabel: String,
+        onConfirm: () -> Unit
+    ) {
+        confirmDialog = ConfirmDialogUi(
+            title = title,
+            body = body,
+            confirmLabel = confirmLabel,
+            dismissLabel = getString(R.string.dialog_cancel)
+        )
+        pendingConfirm = onConfirm
     }
 
-    private fun showConflictDialog(conflicts: List<ConflictGroup>, onResolved: (Map<String, String>) -> Unit) {
-        // A radio group per conflict does not scale: hundreds of them take
-        // seconds to inflate on the UI thread. Large batches get the same two
-        // choices with a lazy list for picking winners.
-        if (conflicts.size > 25) {
-            AlertDialog.Builder(this)
-                .setTitle(R.string.conflict_dialog_title)
-                .setMessage(
-                    getString(
-                        R.string.conflict_many_message,
-                        conflicts.size,
-                        conflicts.sumOf { it.members.size }
-                    )
-                )
-                .setPositiveButton(R.string.btn_continue) { _, _ -> onResolved(emptyMap()) }
-                .setNeutralButton(R.string.conflict_btn_choose) { _, _ ->
-                    showConflictChooser(conflicts, onResolved)
-                }
-                .setNegativeButton(R.string.dialog_cancel, null)
-                .show()
-            return
-        }
-
-        val container = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(48, 24, 48, 24)
-        }
-        val radioGroups = mutableListOf<Pair<String, RadioGroup>>()
-
-        conflicts.forEach { group ->
-            container.addView(
-                TextView(this).apply {
-                    text = group.outputKey
-                    setTextColor(ContextCompat.getColor(this@MainActivity, R.color.bs_primary))
-                    textSize = 13f
-                    setTypeface(typeface, Typeface.BOLD)
-                    setPadding(0, 16, 0, 4)
-                }
-            )
-            container.addView(
-                TextView(this).apply {
-                    text = getString(R.string.conflict_winner_hint)
-                    setTextColor(ContextCompat.getColor(this@MainActivity, R.color.bs_textDim))
-                    textSize = 11f
-                }
-            )
-            val rg = RadioGroup(this).apply { orientation = RadioGroup.VERTICAL }
-            group.members.forEachIndexed { i, member ->
-                rg.addView(
-                    RadioButton(this).apply {
-                        id = View.generateViewId()
-                        text = member.name
-                        isChecked = i == 0
-                        setTextColor(ContextCompat.getColor(this@MainActivity, R.color.bs_text))
-                    }
-                )
-            }
-            container.addView(rg)
-            radioGroups += group.outputKey to rg
-        }
-
-        val scroll = dialogScrollView().apply { addView(container) }
-
-        AlertDialog.Builder(this)
-            .setTitle(R.string.conflict_dialog_title)
-            .setMessage(R.string.conflict_dialog_message)
-            .setView(scroll)
-            .setPositiveButton(R.string.conflict_btn_build_chosen) { _, _ ->
-                onResolved(collectChoices(radioGroups))
-            }
-            .setNeutralButton(R.string.btn_continue) { _, _ -> onResolved(emptyMap()) }
-            .setNegativeButton(R.string.dialog_cancel, null)
-            .show()
-    }
-
-    private fun collectChoices(radioGroups: List<Pair<String, RadioGroup>>): Map<String, String> {
-        val choices = mutableMapOf<String, String>()
-        for ((key, rg) in radioGroups) {
-            val rb = rg.findViewById<RadioButton>(rg.checkedRadioButtonId)
-            if (rb != null) choices[key] = rb.text.toString()
-        }
-        return choices
-    }
-
-    /**
-     * Winner picker for large batches. One row per conflicting output file, and
-     * a tap opens that file's candidates, so the dialog stays cheap to open no
-     * matter how many conflicts there are.
-     */
-    private fun showConflictChooser(
+    private fun showConflictDialog(
         conflicts: List<ConflictGroup>,
         onResolved: (Map<String, String>) -> Unit
     ) {
-        val choices = linkedMapOf<String, String>()
-        conflicts.forEach { choices[it.outputKey] = it.members.first().name }
-
-        val rows = object : BaseAdapter() {
-            override fun getCount() = conflicts.size
-            override fun getItem(position: Int) = conflicts[position]
-            override fun getItemId(position: Int) = position.toLong()
-
-            override fun getView(position: Int, convertView: View?, parent: ViewGroup?): View {
-                val row = convertView as? LinearLayout ?: LinearLayout(this@MainActivity).apply {
-                    orientation = LinearLayout.VERTICAL
-                    setPadding(48, 20, 48, 20)
-                    addView(TextView(this@MainActivity).apply {
-                        id = OUTPUT_KEY_VIEW
-                        textSize = 13f
-                        setTypeface(typeface, Typeface.BOLD)
-                        setTextColor(ContextCompat.getColor(this@MainActivity, R.color.bs_primary))
-                    })
-                    addView(TextView(this@MainActivity).apply {
-                        id = WINNER_VIEW
-                        textSize = 12f
-                        setTextColor(ContextCompat.getColor(this@MainActivity, R.color.bs_textDim))
-                    })
-                }
-                val group = conflicts[position]
-                row.findViewById<TextView>(OUTPUT_KEY_VIEW).text = group.outputKey
-                row.findViewById<TextView>(WINNER_VIEW).text =
-                    choices[group.outputKey] ?: group.members.first().name
-                return row
-            }
-        }
-
-        val list = ListView(this).apply { adapter = rows }
-        val screenHeight = resources.displayMetrics.heightPixels
-        val rowHeight = (72 * resources.displayMetrics.density).toInt()
-        val host = FrameLayout(this).apply {
-            layoutParams = ViewGroup.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                minOf((screenHeight * 0.55f).toInt(), rowHeight * conflicts.size)
-            )
-            addView(
-                list,
-                FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.MATCH_PARENT,
-                    FrameLayout.LayoutParams.MATCH_PARENT
-                )
+        conflictResolver = onResolved
+        conflictGroups = conflicts.map { group ->
+            ConflictGroupUi(
+                outputKey = group.outputKey,
+                members = group.members.map { it.name }
             )
         }
+    }
 
-        val chooser = AlertDialog.Builder(this)
-            .setTitle(R.string.conflict_btn_choose)
-            .setMessage(R.string.conflict_chooser_hint)
-            .setView(host)
-            .setPositiveButton(R.string.conflict_btn_build_chosen) { _, _ -> onResolved(choices) }
-            .setNegativeButton(R.string.dialog_cancel, null)
-            .create()
+    private fun resolveConflicts(choices: Map<String, String>) {
+        val resolver = conflictResolver
+        clearConflict()
+        resolver?.invoke(choices)
+    }
 
-        list.setOnItemClickListener { _, _, position, _ ->
-            val group = conflicts[position]
-            AlertDialog.Builder(this)
-                .setTitle(group.outputKey)
-                .setItems(group.members.map { it.name }.toTypedArray()) { _, which ->
-                    choices[group.outputKey] = group.members[which].name
-                    rows.notifyDataSetChanged()
-                }
-                .setNegativeButton(R.string.dialog_cancel, null)
-                .show()
-        }
-
-        chooser.show()
+    private fun clearConflict() {
+        conflictGroups = null
+        conflictResolver = null
     }
 
     // -----------------------------------------------------------------------
@@ -1100,21 +974,8 @@ class MainActivity : AppCompatActivity() {
     // -----------------------------------------------------------------------
 
     private fun showLogsDialog() {
-        val text = sessionLog.toString().ifBlank { getString(R.string.logs_empty) }
         logExpanded = true
-        val tv = TextView(this).apply {
-            this.text = text
-            setTextColor(ContextCompat.getColor(this@MainActivity, R.color.bs_text))
-            textSize = 12f
-            setPadding(32, 24, 32, 8)
-            setTextIsSelectable(true)
-        }
-        val scroll = dialogScrollView().apply { addView(tv) }
-        AlertDialog.Builder(this)
-            .setTitle(R.string.dialog_logs_title)
-            .setView(scroll)
-            .setPositiveButton(R.string.dialog_close, null)
-            .show()
+        logDialogText = sessionLog.toString().ifBlank { getString(R.string.logs_empty) }
     }
 
     /**

@@ -1,13 +1,32 @@
 package com.bodyslide.android
 
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
+import com.skyrimsuite.ui.SuiteAlertDialog
 import com.skyrimsuite.ui.SuiteBarAction
 import com.skyrimsuite.ui.SuiteCard
 import com.skyrimsuite.ui.SuiteChip
@@ -16,15 +35,31 @@ import com.skyrimsuite.ui.SuiteDetailRow
 import com.skyrimsuite.ui.SuiteDropdown
 import com.skyrimsuite.ui.SuiteEmptyState
 import com.skyrimsuite.ui.SuiteLogCard
+import com.skyrimsuite.ui.SuiteLogDialog
 import com.skyrimsuite.ui.SuitePathRow
 import com.skyrimsuite.ui.SuitePermissionNotice
 import com.skyrimsuite.ui.SuiteScreen
 import com.skyrimsuite.ui.SuiteSettingsSheet
 import com.skyrimsuite.ui.SuiteTextField
+import com.skyrimsuite.ui.SuiteTextInputDialog
 import com.skyrimsuite.ui.SuiteToggleRow
 
 /** Read-only projection of one slider's applied value. */
 data class PresetValueRow(val label: String, val value: String)
+
+/** Simple themed confirm dialog requested by the activity. */
+data class ConfirmDialogUi(
+    val title: String,
+    val body: String,
+    val confirmLabel: String,
+    val dismissLabel: String? = null
+)
+
+/** Conflict resolver input: one output file and the outfits that want it. */
+data class ConflictGroupUi(
+    val outputKey: String,
+    val members: List<String>
+)
 
 @Composable
 fun BodySlideScreen(
@@ -61,7 +96,20 @@ fun BodySlideScreen(
     onGrantStorage: () -> Unit,
     onBuild: () -> Unit,
     onBatchBuild: () -> Unit,
-    onViewLogs: () -> Unit
+    onViewLogs: () -> Unit,
+    confirmDialog: ConfirmDialogUi?,
+    onConfirmDialogConfirm: () -> Unit,
+    onConfirmDialogDismiss: () -> Unit,
+    logDialogText: String?,
+    onLogDialogDismiss: () -> Unit,
+    pathPromptTitle: String?,
+    pathPromptInitial: String,
+    onPathPromptConfirm: (String) -> Unit,
+    onPathPromptDismiss: () -> Unit,
+    conflictGroups: List<ConflictGroupUi>?,
+    onConflictConfirm: (Map<String, String>) -> Unit,
+    onConflictContinue: () -> Unit,
+    onConflictCancel: () -> Unit
 ) {
     var showSettings by rememberSaveable { mutableStateOf(false) }
 
@@ -230,5 +278,251 @@ fun BodySlideScreen(
             placeholder = stringResource(R.string.msg_not_selected),
             supportingText = stringResource(R.string.hint_output_path)
         )
+    }
+
+    confirmDialog?.let { dialog ->
+        SuiteAlertDialog(
+            title = dialog.title,
+            body = dialog.body,
+            confirmLabel = dialog.confirmLabel,
+            dismissLabel = dialog.dismissLabel,
+            onConfirm = onConfirmDialogConfirm,
+            onDismiss = onConfirmDialogDismiss
+        )
+    }
+
+    logDialogText?.let { log ->
+        SuiteLogDialog(
+            title = stringResource(R.string.dialog_logs_title),
+            log = log,
+            closeLabel = stringResource(R.string.dialog_close),
+            onDismiss = onLogDialogDismiss,
+            emptyText = stringResource(R.string.logs_empty)
+        )
+    }
+
+    if (pathPromptTitle != null) {
+        SuiteTextInputDialog(
+            title = pathPromptTitle,
+            body = "Could not resolve a real filesystem path from the picker. Enter the absolute path.",
+            initialValue = pathPromptInitial,
+            confirmLabel = stringResource(R.string.dialog_ok),
+            dismissLabel = stringResource(R.string.dialog_cancel),
+            onConfirm = onPathPromptConfirm,
+            onDismiss = onPathPromptDismiss
+        )
+    }
+
+    conflictGroups?.let { groups ->
+        SuiteConflictDialog(
+            groups = groups,
+            onConfirm = onConflictConfirm,
+            onContinue = onConflictContinue,
+            onCancel = onConflictCancel
+        )
+    }
+}
+
+@Composable
+private fun SuiteConflictDialog(
+    groups: List<ConflictGroupUi>,
+    onConfirm: (Map<String, String>) -> Unit,
+    onContinue: () -> Unit,
+    onCancel: () -> Unit
+) {
+    var choices by remember(groups) {
+        mutableStateOf(groups.associate { it.outputKey to it.members.first() })
+    }
+    var chooser by rememberSaveable { mutableStateOf(false) }
+    var pickerKey by remember { mutableStateOf<String?>(null) }
+
+    if (groups.size > 25 && !chooser) {
+        // Hundreds of radio groups do not fit a dialog, so offer the two
+        // practical choices first and only build the picker on request.
+        SuiteAlertDialog(
+            title = stringResource(R.string.conflict_dialog_title),
+            body = stringResource(
+                R.string.conflict_many_message,
+                groups.size,
+                groups.sumOf { it.members.size }
+            ),
+            confirmLabel = stringResource(R.string.btn_continue),
+            neutralLabel = stringResource(R.string.conflict_btn_choose),
+            dismissLabel = stringResource(R.string.dialog_cancel),
+            onConfirm = onContinue,
+            onNeutral = { chooser = true },
+            onDismiss = onCancel
+        )
+    } else if (!chooser) {
+        AlertDialog(
+            onDismissRequest = onCancel,
+            shape = MaterialTheme.shapes.large,
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            title = {
+                Text(
+                    text = stringResource(R.string.conflict_dialog_title),
+                    style = MaterialTheme.typography.headlineSmall
+                )
+            },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .heightIn(max = 400.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = stringResource(R.string.conflict_dialog_message),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    groups.forEach { group ->
+                        Text(
+                            text = group.outputKey,
+                            style = MaterialTheme.typography.titleSmall,
+                            modifier = Modifier.padding(top = 10.dp)
+                        )
+                        Text(
+                            text = stringResource(R.string.conflict_winner_hint),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        group.members.forEach { member ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        choices = choices + (group.outputKey to member)
+                                    },
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                RadioButton(
+                                    selected = choices[group.outputKey] == member,
+                                    onClick = { choices = choices + (group.outputKey to member) }
+                                )
+                                Text(member, style = MaterialTheme.typography.bodyMedium)
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { onConfirm(choices) }) {
+                    Text(stringResource(R.string.conflict_btn_build_chosen))
+                }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = onContinue) {
+                        Text(stringResource(R.string.btn_continue))
+                    }
+                    TextButton(onClick = onCancel) {
+                        Text(stringResource(R.string.dialog_cancel))
+                    }
+                }
+            }
+        )
+    } else {
+        AlertDialog(
+            onDismissRequest = onCancel,
+            shape = MaterialTheme.shapes.large,
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            title = {
+                Text(
+                    text = stringResource(R.string.conflict_btn_choose),
+                    style = MaterialTheme.typography.headlineSmall
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = stringResource(R.string.conflict_chooser_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    LazyColumn(modifier = Modifier.heightIn(max = 360.dp)) {
+                        items(groups, key = { it.outputKey }) { group ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { pickerKey = group.outputKey }
+                                    .padding(vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = group.outputKey,
+                                        style = MaterialTheme.typography.titleSmall
+                                    )
+                                    Text(
+                                        text = choices[group.outputKey] ?: group.members.first(),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { onConfirm(choices) }) {
+                    Text(stringResource(R.string.conflict_btn_build_chosen))
+                }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = onContinue) {
+                        Text(stringResource(R.string.btn_continue))
+                    }
+                    TextButton(onClick = onCancel) {
+                        Text(stringResource(R.string.dialog_cancel))
+                    }
+                }
+            }
+        )
+    }
+
+    pickerKey?.let { key ->
+        val group = groups.firstOrNull { it.outputKey == key }
+        if (group != null) {
+            AlertDialog(
+                onDismissRequest = { pickerKey = null },
+                shape = MaterialTheme.shapes.large,
+                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                title = {
+                    Text(text = key, style = MaterialTheme.typography.titleSmall)
+                },
+                text = {
+                    Column {
+                        group.members.forEach { member ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        choices = choices + (key to member)
+                                        pickerKey = null
+                                    },
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                RadioButton(
+                                    selected = choices[key] == member,
+                                    onClick = {
+                                        choices = choices + (key to member)
+                                        pickerKey = null
+                                    }
+                                )
+                                Text(member, style = MaterialTheme.typography.bodyMedium)
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { pickerKey = null }) {
+                        Text(stringResource(R.string.dialog_ok))
+                    }
+                }
+            )
+        }
     }
 }
