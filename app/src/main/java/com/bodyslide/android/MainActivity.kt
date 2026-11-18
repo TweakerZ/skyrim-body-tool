@@ -6,8 +6,11 @@ import android.os.Bundle
 import android.text.InputType
 import android.view.View
 import android.view.ViewGroup
+import android.widget.BaseAdapter
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.LinearLayout
+import android.widget.ListView
 import android.widget.RadioButton
 import android.widget.RadioGroup
 import android.widget.TextView
@@ -649,20 +652,23 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showConflictDialog(conflicts: List<ConflictGroup>, onResolved: (Map<String, String>) -> Unit) {
-        // Hundreds of radio groups would take seconds to inflate on the UI
-        // thread, so large batches get the "first set wins" shortcut instead.
+        // A radio group per conflict does not scale: hundreds of them take
+        // seconds to inflate on the UI thread. Large batches get the same two
+        // choices with a lazy list for picking winners.
         if (conflicts.size > 25) {
             AlertDialog.Builder(this)
                 .setTitle(R.string.conflict_dialog_title)
                 .setMessage(
-                    "${conflicts.size} output conflicts across " +
-                        "${conflicts.sumOf { it.members.size }} sets. " +
-                        "Resolving each one individually would be a lot of taps; " +
-                        "build in smaller batches with the group filter if you need " +
-                        "per-conflict winners. Continue with the first set winning " +
-                        "each conflict?"
+                    getString(
+                        R.string.conflict_many_message,
+                        conflicts.size,
+                        conflicts.sumOf { it.members.size }
+                    )
                 )
                 .setPositiveButton(R.string.btn_continue) { _, _ -> onResolved(emptyMap()) }
+                .setNeutralButton(R.string.conflict_btn_choose) { _, _ ->
+                    showConflictChooser(conflicts, onResolved)
+                }
                 .setNegativeButton(R.string.dialog_cancel, null)
                 .show()
             return
@@ -712,16 +718,102 @@ class MainActivity : AppCompatActivity() {
             .setTitle(R.string.conflict_dialog_title)
             .setMessage(R.string.conflict_dialog_message)
             .setView(scroll)
-            .setPositiveButton(R.string.btn_continue) { _, _ ->
-                val choices = mutableMapOf<String, String>()
-                for ((key, rg) in radioGroups) {
-                    val rb = rg.findViewById<RadioButton>(rg.checkedRadioButtonId)
-                    if (rb != null) choices[key] = rb.text.toString()
-                }
-                onResolved(choices)
+            .setPositiveButton(R.string.conflict_btn_build_chosen) { _, _ ->
+                onResolved(collectChoices(radioGroups))
             }
+            .setNeutralButton(R.string.btn_continue) { _, _ -> onResolved(emptyMap()) }
             .setNegativeButton(R.string.dialog_cancel, null)
             .show()
+    }
+
+    private fun collectChoices(radioGroups: List<Pair<String, RadioGroup>>): Map<String, String> {
+        val choices = mutableMapOf<String, String>()
+        for ((key, rg) in radioGroups) {
+            val rb = rg.findViewById<RadioButton>(rg.checkedRadioButtonId)
+            if (rb != null) choices[key] = rb.text.toString()
+        }
+        return choices
+    }
+
+    /**
+     * Winner picker for large batches. One row per conflicting output file, and
+     * a tap opens that file's candidates, so the dialog stays cheap to open no
+     * matter how many conflicts there are.
+     */
+    private fun showConflictChooser(
+        conflicts: List<ConflictGroup>,
+        onResolved: (Map<String, String>) -> Unit
+    ) {
+        val choices = linkedMapOf<String, String>()
+        conflicts.forEach { choices[it.outputKey] = it.members.first().name }
+
+        val rows = object : BaseAdapter() {
+            override fun getCount() = conflicts.size
+            override fun getItem(position: Int) = conflicts[position]
+            override fun getItemId(position: Int) = position.toLong()
+
+            override fun getView(position: Int, convertView: View?, parent: ViewGroup?): View {
+                val row = convertView as? LinearLayout ?: LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(48, 20, 48, 20)
+                    addView(TextView(this@MainActivity).apply {
+                        id = OUTPUT_KEY_VIEW
+                        textSize = 13f
+                        setTypeface(typeface, Typeface.BOLD)
+                        setTextColor(ContextCompat.getColor(this@MainActivity, R.color.bs_primary))
+                    })
+                    addView(TextView(this@MainActivity).apply {
+                        id = WINNER_VIEW
+                        textSize = 12f
+                        setTextColor(ContextCompat.getColor(this@MainActivity, R.color.bs_textDim))
+                    })
+                }
+                val group = conflicts[position]
+                row.findViewById<TextView>(OUTPUT_KEY_VIEW).text = group.outputKey
+                row.findViewById<TextView>(WINNER_VIEW).text =
+                    choices[group.outputKey] ?: group.members.first().name
+                return row
+            }
+        }
+
+        val list = ListView(this).apply { adapter = rows }
+        val screenHeight = resources.displayMetrics.heightPixels
+        val rowHeight = (72 * resources.displayMetrics.density).toInt()
+        val host = FrameLayout(this).apply {
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                minOf((screenHeight * 0.55f).toInt(), rowHeight * conflicts.size)
+            )
+            addView(
+                list,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+                )
+            )
+        }
+
+        val chooser = AlertDialog.Builder(this)
+            .setTitle(R.string.conflict_btn_choose)
+            .setMessage(R.string.conflict_chooser_hint)
+            .setView(host)
+            .setPositiveButton(R.string.conflict_btn_build_chosen) { _, _ -> onResolved(choices) }
+            .setNegativeButton(R.string.dialog_cancel, null)
+            .create()
+
+        list.setOnItemClickListener { _, _, position, _ ->
+            val group = conflicts[position]
+            AlertDialog.Builder(this)
+                .setTitle(group.outputKey)
+                .setItems(group.members.map { it.name }.toTypedArray()) { _, which ->
+                    choices[group.outputKey] = group.members[which].name
+                    rows.notifyDataSetChanged()
+                }
+                .setNegativeButton(R.string.dialog_cancel, null)
+                .show()
+        }
+
+        chooser.show()
     }
 
     // -----------------------------------------------------------------------
@@ -1085,5 +1177,7 @@ class MainActivity : AppCompatActivity() {
         private const val PREF_OUTPUT_PATH = "output_path"
         private const val PREF_MOD_NAME = "mod_name"
         private const val PREF_PACKAGE_ZIP = "package_zip"
+        private const val OUTPUT_KEY_VIEW = 1
+        private const val WINNER_VIEW = 2
     }
 }

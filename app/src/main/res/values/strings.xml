@@ -61,8 +61,12 @@
     <string name="conflict_summary_free">%1$d set(s) queued, no output conflicts.</string>
     <string name="conflict_summary">%1$d output conflict(s) found. %2$d set(s) will be built.</string>
     <string name="conflict_dialog_title">Resolve output conflicts</string>
-    <string name="conflict_dialog_message">Multiple outfits write the same output file. Choose which outfit wins for each; the others are skipped for that file.</string>
+    <string name="conflict_dialog_message">Multiple outfits write the same output file. Choose which outfit wins for each, or continue with the first set winning each conflict. Losers are skipped for that file only.</string>
+    <string name="conflict_many_message">%1$d output conflicts across %2$d sets. Choose winners to pick the outfit for each file, or continue with the first set winning every conflict.</string>
     <string name="conflict_winner_hint">Build this outfit</string>
+    <string name="conflict_chooser_hint">Tap a file to pick the outfit that builds it.</string>
+    <string name="conflict_btn_choose">Choose winners</string>
+    <string name="conflict_btn_build_chosen">Build chosen</string>
     <string name="btn_continue">Continue build</string>
 
     <!-- Actions -->
