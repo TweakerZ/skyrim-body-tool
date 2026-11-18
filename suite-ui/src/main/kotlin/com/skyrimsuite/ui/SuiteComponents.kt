@@ -10,16 +10,21 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
@@ -28,6 +33,7 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
@@ -52,6 +58,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -60,6 +67,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.skyrimsuite.ui.theme.SuiteMonoTextStyle
 
 /* ------------------------------------------------------------------------- */
@@ -308,7 +317,7 @@ fun SuiteTopBar(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier
                     .align(Alignment.Center)
-                    .padding(horizontal = 56.dp)
+                    .padding(horizontal = 24.dp)
             ) {
                 Text(
                     text = title,
@@ -359,7 +368,7 @@ fun SuiteBottomBar(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .navigationBarsPadding()
+                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom))
                 .padding(horizontal = 20.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
@@ -428,7 +437,6 @@ fun SuiteScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .imePadding()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp)
                 .padding(top = 4.dp, bottom = 28.dp),
@@ -459,12 +467,15 @@ fun SuiteSettingsSheet(
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
+        modifier = Modifier.fillMaxHeight(),
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        windowInsets = WindowInsets(0, 0, 0, 0),
         dragHandle = {
             Box(
                 modifier = Modifier
-                    .padding(top = 12.dp, bottom = 4.dp)
+                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))
+                    .padding(top = 8.dp, bottom = 4.dp)
                     .size(width = 44.dp, height = 4.dp)
                     .background(
                         MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
@@ -476,9 +487,11 @@ fun SuiteSettingsSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .fillMaxHeight()
+                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom))
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 24.dp)
-                .padding(bottom = 32.dp),
+                .padding(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
             Text(
@@ -798,5 +811,201 @@ fun SuiteDetailRow(label: String, value: String, modifier: Modifier = Modifier) 
             maxLines = 2,
             overflow = TextOverflow.Ellipsis
         )
+    }
+}
+
+/* ------------------------------------------------------------------------- */
+/* Dialogs                                                                    */
+/* ------------------------------------------------------------------------- */
+
+/**
+ * Material 3 confirm dialog. Replaces the platform/AppCompat `AlertDialog`
+ * (which renders an unthemed grey surface) everywhere in the suite.
+ */
+@Composable
+fun SuiteAlertDialog(
+    title: String,
+    body: String,
+    confirmLabel: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+    dismissLabel: String? = null,
+    neutralLabel: String? = null,
+    onNeutral: (() -> Unit)? = null,
+    destructive: Boolean = false
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = MaterialTheme.shapes.large,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+        title = {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            Text(
+                text = body,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        },
+        confirmButton = {
+            Button(
+                onClick = onConfirm,
+                shape = CircleShape,
+                colors = if (destructive) {
+                    ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onError
+                    )
+                } else {
+                    ButtonDefaults.buttonColors()
+                }
+            ) {
+                Text(confirmLabel, style = MaterialTheme.typography.titleSmall)
+            }
+        },
+        dismissButton = if (dismissLabel == null && neutralLabel == null) {
+            null
+        } else {
+            {
+                Row {
+                    if (neutralLabel != null) {
+                        TextButton(onClick = onNeutral ?: onDismiss) {
+                            Text(neutralLabel, style = MaterialTheme.typography.titleSmall)
+                        }
+                    }
+                    if (dismissLabel != null) {
+                        TextButton(onClick = onDismiss) {
+                            Text(dismissLabel, style = MaterialTheme.typography.titleSmall)
+                        }
+                    }
+                }
+            }
+        }
+    )
+}
+
+/** Single-value text prompt (manual filesystem paths, names). */
+@Composable
+fun SuiteTextInputDialog(
+    title: String,
+    body: String,
+    initialValue: String,
+    confirmLabel: String,
+    onConfirm: (String) -> Unit,
+    onDismiss: () -> Unit,
+    dismissLabel: String? = null,
+    hint: String? = null
+) {
+    var value by rememberSaveable(initialValue) { mutableStateOf(initialValue) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = MaterialTheme.shapes.large,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+        title = {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Text(
+                    text = body,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                OutlinedTextField(
+                    value = value,
+                    onValueChange = { value = it },
+                    placeholder = hint?.let { { Text(it) } },
+                    shape = MaterialTheme.shapes.medium,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onConfirm(value.trim()) },
+                enabled = value.isNotBlank(),
+                shape = CircleShape
+            ) {
+                Text(confirmLabel, style = MaterialTheme.typography.titleSmall)
+            }
+        },
+        dismissButton = dismissLabel?.let { label ->
+            {
+                TextButton(onClick = onDismiss) {
+                    Text(label, style = MaterialTheme.typography.titleSmall)
+                }
+            }
+        }
+    )
+}
+
+/** Full log viewer with a tonal monospace pane instead of a grey platform dialog. */
+@Composable
+fun SuiteLogDialog(
+    title: String,
+    log: String,
+    closeLabel: String,
+    onDismiss: () -> Unit,
+    emptyText: String = "Nothing logged yet."
+) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            shape = MaterialTheme.shapes.large,
+            color = MaterialTheme.colorScheme.surfaceContainerLow,
+            tonalElevation = 6.dp,
+            modifier = Modifier
+                .fillMaxWidth(0.94f)
+                .widthIn(max = 620.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f)
+                    )
+                    TextButton(onClick = onDismiss) {
+                        Text(closeLabel, style = MaterialTheme.typography.titleSmall)
+                    }
+                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 160.dp, max = 440.dp)
+                        .background(
+                            MaterialTheme.colorScheme.surfaceContainerHighest,
+                            MaterialTheme.shapes.medium
+                        )
+                ) {
+                    val scroll = rememberScrollState()
+                    Text(
+                        text = log.ifBlank { emptyText },
+                        style = SuiteMonoTextStyle,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(scroll)
+                            .padding(14.dp)
+                    )
+                }
+            }
+        }
     }
 }
