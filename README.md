@@ -2,7 +2,7 @@
 
 An Android app that builds Skyrim Legendary Edition outfit, body and clothing meshes from BodySlide presets on device. It reads a BodySlide project, applies the selected preset to the sets you choose, and writes an installable mod zip. Built for static Skyrim LE Android ports, where the desktop BodySlide workflow means copying a project off the phone and the meshes back on.
 
-The app has no launcher icon. Skyrim Mod Loader lists it in its plugin section and starts it from there.
+The main build has no launcher icon; Skyrim Mod Loader lists it in its plugin section and starts it from there. A second build adds a normal drawer icon for anyone who wants one.
 
 ![Main screen](docs/screenshot-main.png)
 
@@ -22,13 +22,13 @@ The app has no launcher icon. Skyrim Mod Loader lists it in its plugin section a
 
 - Android 7.0 (API 24) or newer, `arm64-v8a`.
 - All files access. Projects and mod zips live on shared storage, so the app needs real file paths.
-- Skyrim Mod Loader, which starts the app from its plugin section. There is no launcher icon.
+- Skyrim Mod Loader if you use the iconless build, which starts the app from its plugin section.
 - A Skyrim Legendary Edition static Android port. Special Edition and Fallout 4 are not supported.
 - A BodySlide project folder with `SliderSets`, `SliderPresets`, `SliderGroups` and `ShapeData`, for example `CalienteTools/BodySlide` from CBBE, HIMBO or a refit pack.
 
 ## Usage
 
-1. Download `BodyTool-<version>.apk` from [Releases](https://github.com/TweakerZ/skyrim-body-tool/releases) and install it. There is no launcher icon; open the app from the plugin section of Skyrim Mod Loader.
+1. Download one of the two APKs from [Releases](https://github.com/TweakerZ/skyrim-body-tool/releases). `BodyTool-<version>.apk` has no launcher icon; open it from the plugin section of Skyrim Mod Loader. `BodyTool-<version>-launcher.apk` is the same app with a drawer icon. Both accept updates over each other.
 2. Open **Advanced settings** and set the BodySlide project folder, the game/mod data folder and the output folder.
 3. Pick a group filter, an outfit and a preset. **Preset values** shows what the preset applies.
 4. **Build** one set or **Batch build** the current filter, then install the resulting zip with your mod loader.
@@ -41,8 +41,10 @@ Requires JDK 17, an Android SDK with build-tools 34, NDK `27.3.13750724` and CMa
 git clone --recursive https://github.com/TweakerZ/skyrim-body-tool.git
 cd skyrim-body-tool
 echo "sdk.dir=/path/to/Android/sdk" > local.properties
-./gradlew :app:assembleRelease
+./gradlew :app:assemblePluginRelease :app:assembleLauncherRelease
 ```
+
+The iconless build lands in `app/build/outputs/apk/plugin/release/` and the drawer-icon build in `app/build/outputs/apk/launcher/release/`. `./gradlew :app:assembleRelease` builds both.
 
 Release signing reads `keystore.properties` from the project root:
 
@@ -58,6 +60,7 @@ Without that file the release build is unsigned. The Compose components come fro
 ## Layout
 
 - `app/src/main/cpp/` – build core: slider set and preset parsing, morph application, NIF read/write.
+- `app/src/main/` – manifest with the Skyrim Mod Loader action and no launcher entry; `app/src/launcher/` adds the drawer icon.
 - `app/src/main/java/com/bodyslide/android/` – project scanning, preset parsing, conflict resolution, zip packaging and the Compose UI.
 - `app/src/main/cpp/third_party/` – `nifly` submodule and `tinyxml2`.
 - `suite-ui/` – shared Compose components used by the Skyrim Android tools.
