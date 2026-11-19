@@ -61,6 +61,20 @@ android {
         }
     }
 
+    // Two installable builds of the same app: "plugin" has no launcher icon and
+    // is started from Skyrim Mod Loader, "launcher" adds a drawer icon on top of
+    // the same plugin action. Same application id and version, so either APK
+    // can replace the other without losing settings.
+    flavorDimensions 'entry'
+    productFlavors {
+        plugin {
+            dimension 'entry'
+        }
+        launcher {
+            dimension 'entry'
+        }
+    }
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
